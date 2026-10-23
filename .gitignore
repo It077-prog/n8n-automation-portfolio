@@ -1,0 +1,19 @@
+# Secrets: never commit these
+.env
+*.env
+!.env.example
+
+# n8n local data and credentials
+.n8n/
+*.sqlite
+*.sqlite-journal
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Node
+node_modules/
+npm-debug.log*
