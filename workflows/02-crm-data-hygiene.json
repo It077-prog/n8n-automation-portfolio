@@ -1,0 +1,110 @@
+{
+  "name": "02 - CRM Data Hygiene (dummy data)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## CRM data hygiene\n**Purpose:** find duplicates, missing fields, invalid emails, stale records and non-standard specialisms.\n**Safe by design:** flags and proposes only. Nothing is edited or deleted. Merges need human approval.\n**To use with a real CRM:** replace the \"Sample candidates\" node with a HubSpot / Sheets / Postgres read node, and add a human-approval step before any write-back.\n**Data:** all records here are fictional.",
+        "height": 260,
+        "width": 520,
+        "color": 5
+      },
+      "id": "a1111111-0000-4000-8000-000000000001",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -120,
+        -120
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a1111111-0000-4000-8000-000000000002",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dummy candidate records (fictional). Deliberately contains duplicates, gaps and stale rows.\nconst records = [\n  { id: 'C001', full_name: 'Aisha Rahman', email: 'aisha.rahman@example.com', phone: '+971 50 111 2233', company: 'Northgate Capital', specialism: 'Quant Research', owner: 'Sam', stage: 'Engaged', last_contacted: '2026-09-18' },\n  { id: 'C002', full_name: 'Aisha  Rahman', email: 'AISHA.RAHMAN@example.com', phone: '0097150 111 2233', company: 'Northgate Capital', specialism: 'quant', owner: 'Sam', stage: 'Contacted', last_contacted: '2026-08-02' },\n  { id: 'C003', full_name: 'Tom Becker', email: 'tom.becker@example.com', phone: '', company: 'Helix Trading', specialism: 'Trading Tech', owner: '', stage: 'Held', last_contacted: '2025-01-10' },\n  { id: 'C004', full_name: 'Li Wei', email: 'li.wei@example', phone: '+971 55 222 3344', company: 'Orbit Systems', specialism: 'Infra', owner: 'Priya', stage: 'Submitted', last_contacted: '2026-10-01' },\n  { id: 'C005', full_name: 'Maria Costa', email: 'maria.costa@example.com', phone: '+44 7700 900123', company: '', specialism: 'Software Engineering', owner: 'Priya', stage: 'Held', last_contacted: '2026-07-15' },\n  { id: 'C006', full_name: 'Omar Haddad', email: 'omar.haddad@example.com', phone: '+971 52 333 4455', company: 'Delta Markets', specialism: 'Crypto Ops', owner: 'Sam', stage: 'Engaged', last_contacted: '2026-10-12' },\n  { id: 'C007', full_name: 'Sara Lindqvist', email: 'sara.l@example.com', phone: '+46 70 123 4567', company: 'Fjord Quant', specialism: 'Quant Research', owner: 'Sam', stage: 'Interview', last_contacted: '2026-10-15' },\n  { id: 'C008', full_name: 'S. Lindqvist', email: 'sara.l@example.com', phone: '', company: 'Fjord Quant', specialism: 'Quant Research', owner: 'Priya', stage: 'Held', last_contacted: '' },\n  { id: 'C009', full_name: 'Daniel Okafor', email: 'daniel.okafor@example.com', phone: '+971 56 444 5566', company: 'Apex Infra', specialism: 'Infrastructure', owner: 'Sam', stage: 'Offer', last_contacted: '2026-10-20' },\n  { id: 'C010', full_name: 'Yuki Tanaka', email: '', phone: '+81 90 1234 5678', company: 'Kite Securities', specialism: 'Trading', owner: 'Priya', stage: 'Contacted', last_contacted: '2025-03-04' }\n];\nreturn records.map(r => ({ json: r }));\n"
+      },
+      "id": "a1111111-0000-4000-8000-000000000003",
+      "name": "Sample candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// CRM data hygiene check (n8n Code node, \"Run once for all items\").\n// Input: candidate records. Output: one item per record with cleaned fields, issues and a suggested action.\n// Nothing is changed or deleted in the source system: this only flags and proposes.\nconst STALE_DAYS = 180;\nconst REQUIRED = ['email', 'phone', 'company', 'specialism', 'owner', 'last_contacted'];\nconst asOf = (typeof ASOF !== 'undefined') ? new Date(ASOF) : new Date();\n\nconst normEmail = (v) => String(v || '').trim().toLowerCase();\nconst validEmail = (v) => /^[^@\\s]+@[^@\\s]+\\.[^@\\s]{2,}$/.test(v);\nconst normPhone = (v) => {\n  let d = String(v || '').replace(/[^\\d+]/g, '');\n  if (d.startsWith('00')) d = '+' + d.slice(2);\n  return d.replace(/(?!^)\\+/g, '');\n};\nconst normName = (v) => String(v || '').replace(/\\s+/g, ' ').trim();\nconst normSpecialism = (v) => {\n  const s = String(v || '').toLowerCase();\n  if (!s.trim()) return '';\n  if (s.includes('quant')) return 'Quant Research';\n  if (s.includes('trading')) return 'Trading Tech';\n  if (s.includes('software')) return 'Software Engineering';\n  if (s.includes('infra')) return 'Infrastructure';\n  return 'Other';\n};\nconst daysSince = (v) => {\n  if (!v) return null;\n  const t = new Date(v);\n  return isNaN(t) ? null : Math.floor((asOf - t) / 86400000);\n};\n\nconst rows = $input.all().map((i) => i.json);\n\n// Clean each record\nconst recs = rows.map((r) => {\n  const email = normEmail(r.email);\n  return {\n    id: r.id,\n    full_name: normName(r.full_name),\n    email,\n    email_valid: email ? validEmail(email) : false,\n    phone: normPhone(r.phone),\n    company: normName(r.company),\n    specialism_raw: r.specialism || '',\n    specialism: normSpecialism(r.specialism),\n    owner: normName(r.owner),\n    stage: r.stage || '',\n    last_contacted: r.last_contacted || '',\n    days_since_contact: daysSince(r.last_contacted),\n  };\n});\n\n// Group duplicates (union-find on shared valid email or shared phone)\nconst parent = recs.map((_, i) => i);\nconst find = (x) => (parent[x] === x ? x : (parent[x] = find(parent[x])));\nconst union = (a, b) => { parent[find(a)] = find(b); };\nconst seen = {};\nrecs.forEach((r, i) => {\n  const keys = [];\n  if (r.email && r.email_valid) keys.push('e:' + r.email);\n  if (r.phone) keys.push('p:' + r.phone);\n  keys.forEach((k) => (k in seen ? union(i, seen[k]) : (seen[k] = i)));\n});\nconst groups = {};\nrecs.forEach((r, i) => (groups[find(i)] = groups[find(i)] || []).push(i));\n\n// Master = most recently contacted record in each group\nconst masterOf = {};\nObject.values(groups).forEach((idxs) => {\n  if (idxs.length < 2) return;\n  const best = idxs.slice().sort((a, b) => (recs[a].last_contacted < recs[b].last_contacted ? 1 : -1))[0];\n  idxs.forEach((i) => (masterOf[i] = recs[best].id));\n});\n\nconst out = recs.map((r, i) => {\n  const issues = [];\n  const missing = REQUIRED.filter((f) => !r[f]);\n  if (missing.length) issues.push('missing: ' + missing.join(', '));\n  if (r.email && !r.email_valid) issues.push('invalid email format');\n  if (r.days_since_contact !== null && r.days_since_contact > STALE_DAYS) issues.push('stale: no contact in ' + r.days_since_contact + ' days');\n  if (r.specialism === 'Other') issues.push('specialism not in taxonomy (\"' + r.specialism_raw + '\")');\n  if (r.specialism_raw && r.specialism && r.specialism_raw !== r.specialism && r.specialism !== 'Other') issues.push('specialism standardised: \"' + r.specialism_raw + '\" -> \"' + r.specialism + '\"');\n  const dup = masterOf[i] && masterOf[i] !== r.id;\n  const inDupGroup = masterOf[i] !== undefined;\n  if (dup) issues.push('duplicate of ' + masterOf[i]);\n\n  let action = 'OK';\n  if (dup) action = 'Merge into ' + masterOf[i] + ' (human review)';\n  else if (inDupGroup) action = 'Master record (keep)';\n  else if (issues.some((x) => x.startsWith('missing') || x.startsWith('invalid'))) action = 'Fix fields';\n  else if (issues.some((x) => x.startsWith('stale') || x.startsWith('specialism not'))) action = 'Review';\n\n  return { json: { ...r, issues, issue_count: issues.length, duplicate_master: masterOf[i] || null, action } };\n});\nreturn out;\n"
+      },
+      "id": "a1111111-0000-4000-8000-000000000004",
+      "name": "Hygiene check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Summary report (n8n Code node, \"Run once for all items\").\nconst rows = $input.all().map((i) => i.json);\nconst count = (pred) => rows.filter(pred).length;\nconst summary = {\n  records_checked: rows.length,\n  clean_records: count((r) => r.action === 'OK'),\n  duplicates_to_merge: count((r) => String(r.action).startsWith('Merge')),\n  records_needing_field_fixes: count((r) => r.action === 'Fix fields'),\n  records_to_review: count((r) => r.action === 'Review'),\n  stale_records: count((r) => r.issues.some((x) => x.startsWith('stale'))),\n  missing_email: count((r) => !r.email),\n  invalid_email: count((r) => r.email && !r.email_valid),\n  missing_owner: count((r) => !r.owner),\n  note: 'Flags only. No source record was changed or deleted. Merges need human approval.',\n};\nreturn [{ json: summary }];\n"
+      },
+      "id": "a1111111-0000-4000-8000-000000000005",
+      "name": "Summary report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Sample candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample candidates": {
+      "main": [
+        [
+          {
+            "node": "Hygiene check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hygiene check": {
+      "main": [
+        [
+          {
+            "node": "Summary report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

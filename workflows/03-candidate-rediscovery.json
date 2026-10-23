@@ -1,0 +1,162 @@
+{
+  "name": "03 - Candidate Rediscovery (dummy data)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Candidate rediscovery\n**Purpose:** before sourcing anyone new, search the existing database, rank people against a role, and explain every score.\n**Safe by design:** excludes do-not-contact, no-consent and recently contacted people BEFORE scoring. Output is a proposal for a recruiter to review. Nothing is sent.\n**Edit the role** in the \"Role requirements\" node.\n**AI summary (optional):** the last two nodes are switched OFF. To use them: add a Google Gemini (or Groq) credential, enable both nodes. The prompt allows only facts from the shortlist.\n**Data:** all records are fictional.",
+        "height": 300,
+        "width": 560,
+        "color": 5
+      },
+      "id": "b2222222-0000-4000-8000-000000000001",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -120,
+        -140
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b2222222-0000-4000-8000-000000000002",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Role requirements (edit this node to search for a different role). Fictional example.\nreturn [{\n  json: {\n    role_title: 'Senior Quant Researcher',\n    specialism: 'Quant Research',\n    must_have: ['python', 'statistics', 'time series'],\n    nice_to_have: ['c++', 'machine learning'],\n    locations: ['Dubai', 'London', 'Remote'],\n    min_days_since_contact: 30,\n    top_n: 5,\n  },\n}];\n"
+      },
+      "id": "b2222222-0000-4000-8000-000000000003",
+      "name": "Role requirements",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dummy candidate database (fictional people). Mix of good matches, stale, recently contacted and do-not-contact cases.\nconst db = [\n  { id: 'D01', name: 'Aisha Rahman', specialism: 'Quant Research', skills: ['python', 'statistics', 'time series', 'c++'], location: 'Dubai', stage: 'Held', last_contacted: '2026-03-10', consent: true, do_not_contact: false },\n  { id: 'D02', name: 'Sara Lindqvist', specialism: 'Quant Research', skills: ['python', 'statistics', 'machine learning'], location: 'Stockholm', stage: 'Held', last_contacted: '2026-01-22', consent: true, do_not_contact: false },\n  { id: 'D03', name: 'Tom Becker', specialism: 'Trading Tech', skills: ['c++', 'low latency', 'python'], location: 'London', stage: 'Held', last_contacted: '2025-11-05', consent: true, do_not_contact: false },\n  { id: 'D04', name: 'Li Wei', specialism: 'Quant Research', skills: ['python', 'time series', 'statistics', 'machine learning'], location: 'Singapore', stage: 'Submitted', last_contacted: '2026-10-12', consent: true, do_not_contact: false },\n  { id: 'D05', name: 'Maria Costa', specialism: 'Software Engineering', skills: ['java', 'kubernetes'], location: 'Lisbon', stage: 'Held', last_contacted: '2026-06-30', consent: true, do_not_contact: false },\n  { id: 'D06', name: 'Omar Haddad', specialism: 'Quant Research', skills: ['r', 'statistics'], location: 'Dubai', stage: 'Held', last_contacted: '2026-02-14', consent: true, do_not_contact: false },\n  { id: 'D07', name: 'Daniel Okafor', specialism: 'Infrastructure', skills: ['linux', 'networking'], location: 'London', stage: 'Placed', last_contacted: '2026-09-01', consent: true, do_not_contact: false },\n  { id: 'D08', name: 'Yuki Tanaka', specialism: 'Quant Research', skills: ['python', 'statistics', 'time series', 'c++', 'machine learning'], location: 'Tokyo', stage: 'Held', last_contacted: '2025-05-20', consent: true, do_not_contact: true },\n  { id: 'D09', name: 'Hannah Meyer', specialism: 'Quant Research', skills: ['python', 'time series'], location: 'London', stage: 'Held', last_contacted: '2026-04-02', consent: false, do_not_contact: false },\n  { id: 'D10', name: 'Rohan Iyer', specialism: 'Quant Research', skills: ['python', 'statistics', 'time series'], location: 'Remote', stage: 'Held', last_contacted: '2025-12-15', consent: true, do_not_contact: false }\n];\nreturn db.map((c) => ({ json: c }));\n"
+      },
+      "id": "b2222222-0000-4000-8000-000000000004",
+      "name": "Candidate database",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rank existing candidates against the role (n8n Code node, \"Run once for all items\").\n// Searches the EXISTING database before any new sourcing. Excludes people who must not be contacted.\n// Reads: the \"Role requirements\" node and the \"Candidate database\" node.\nconst role = $('Role requirements').first().json;\nconst cands = $('Candidate database').all().map((i) => i.json);\nconst asOf = (typeof ASOF !== 'undefined') ? new Date(ASOF) : new Date();\nconst days = (d) => (d ? Math.floor((asOf - new Date(d)) / 86400000) : null);\n\nconst ranked = [];\nconst excluded = [];\n\nfor (const c of cands) {\n  // Hard exclusions first: consent and contact rules beat any score.\n  if (c.do_not_contact) { excluded.push({ id: c.id, name: c.name, reason: 'do not contact' }); continue; }\n  if (!c.consent) { excluded.push({ id: c.id, name: c.name, reason: 'no consent to be contacted' }); continue; }\n  const since = days(c.last_contacted);\n  if (since !== null && since < role.min_days_since_contact) {\n    excluded.push({ id: c.id, name: c.name, reason: 'contacted ' + since + ' days ago (minimum ' + role.min_days_since_contact + ')' });\n    continue;\n  }\n\n  const reasons = [];\n  let score = 0;\n  if (c.specialism === role.specialism) { score += 40; reasons.push('specialism match (+40)'); }\n\n  const hasAll = (list) => list.filter((s) => c.skills.includes(s));\n  const must = hasAll(role.must_have);\n  const mustPts = Math.round((must.length / role.must_have.length) * 45);\n  if (must.length) { score += mustPts; reasons.push(must.length + '/' + role.must_have.length + ' must-have skills: ' + must.join(', ') + ' (+' + mustPts + ')'); }\n  const missing = role.must_have.filter((s) => !c.skills.includes(s));\n  if (missing.length) reasons.push('missing: ' + missing.join(', '));\n\n  const nice = hasAll(role.nice_to_have);\n  const nicePts = Math.min(10, nice.length * 5);\n  if (nice.length) { score += nicePts; reasons.push('nice-to-have: ' + nice.join(', ') + ' (+' + nicePts + ')'); }\n\n  if (role.locations.includes(c.location)) { score += 5; reasons.push('location fits: ' + c.location + ' (+5)'); }\n  else reasons.push('location outside target: ' + c.location);\n\n  ranked.push({ id: c.id, name: c.name, specialism: c.specialism, location: c.location, stage: c.stage, days_since_contact: since, score, reasons });\n}\n\nranked.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));\nconst shortlist = ranked.filter((r) => r.score >= 40).slice(0, role.top_n);\n\nreturn [{\n  json: {\n    role: role.role_title,\n    searched: cands.length,\n    shortlisted: shortlist.length,\n    excluded_count: excluded.length,\n    shortlist,\n    not_shortlisted: ranked.filter((r) => !shortlist.includes(r)).map((r) => ({ id: r.id, name: r.name, score: r.score })),\n    excluded,\n    human_review_note: 'Shortlist is a proposal. A recruiter must review before anyone is contacted.',\n  },\n}];\n"
+      },
+      "id": "b2222222-0000-4000-8000-000000000005",
+      "name": "Rank candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are assisting a recruiter. For each shortlisted candidate write a 2-sentence plain-English summary of why they fit the role, using ONLY the facts in the data below. Do not invent employers, skills or achievements. If something is missing, say it is missing. Do not recommend contacting anyone; a human decides.\n\nRole: {{ $json.role }}\nShortlist (JSON): {{ JSON.stringify($json.shortlist) }}",
+        "hasOutputParser": false
+      },
+      "id": "b2222222-0000-4000-8000-000000000006",
+      "name": "AI shortlist summary (optional)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        980,
+        240
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "b2222222-0000-4000-8000-000000000007",
+      "name": "Google Gemini Chat Model (optional)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        460
+      ],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Role requirements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Role requirements": {
+      "main": [
+        [
+          {
+            "node": "Candidate database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Candidate database": {
+      "main": [
+        [
+          {
+            "node": "Rank candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rank candidates": {
+      "main": [
+        [
+          {
+            "node": "AI shortlist summary (optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model (optional)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI shortlist summary (optional)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

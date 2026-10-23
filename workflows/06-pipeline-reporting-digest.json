@@ -1,0 +1,110 @@
+{
+  "name": "06 - Pipeline Reporting Digest (dummy data)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Pipeline reporting digest\n**Purpose:** a weekly summary a person can read in 30 seconds: candidates held in the database (kept separate), then the contacted > engaged > submitted > interview > offer > placed funnel, overall and by client and role.\n**Honest by design:** records with an unrecognised stage are listed in a DATA CHECK line and are NOT counted, so the numbers are never quietly wrong.\n**Use with real data:** replace \"Pipeline data\" with a CRM / Sheets read. Each record needs client, role and furthest_stage.\n**Send it:** add a Slack or Email node after \"Build digest\" and send digest_text. Add a Schedule Trigger for weekly runs.\n**Data:** all records are fictional.",
+        "height": 300,
+        "width": 560,
+        "color": 5
+      },
+      "id": "f6666666-0000-4000-8000-000000000001",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -120,
+        -150
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "f6666666-0000-4000-8000-000000000002",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dummy recruitment pipeline (fictional). Each row = [client, role, furthest stage reached, number of candidates].\n// \"Held\" = sitting in the database, never contacted, so it has no client or role.\nconst rows = [\n  [null, null, 'Held', 40],\n  ['Northgate Capital', 'Quant Researcher', 'Contacted', 6],\n  ['Northgate Capital', 'Quant Researcher', 'Engaged', 4],\n  ['Northgate Capital', 'Quant Researcher', 'Submitted', 3],\n  ['Northgate Capital', 'Quant Researcher', 'Interview', 2],\n  ['Northgate Capital', 'Quant Researcher', 'Offer', 1],\n  ['Northgate Capital', 'Quant Researcher', 'Placed', 1],\n  ['Helix Trading', 'Low-Latency Developer', 'Contacted', 5],\n  ['Helix Trading', 'Low-Latency Developer', 'Engaged', 3],\n  ['Helix Trading', 'Low-Latency Developer', 'Submitted', 2],\n  ['Helix Trading', 'Low-Latency Developer', 'Interview', 1],\n  ['Orbit Systems', 'Infrastructure Engineer', 'Contacted', 4],\n  ['Orbit Systems', 'Infrastructure Engineer', 'Engaged', 2],\n  ['Orbit Systems', 'Infrastructure Engineer', 'Submitted', 1],\n  ['Orbit Systems', 'Infrastructure Engineer', 'Sourced?', 1],\n];\nconst out = [];\nlet n = 1;\nfor (const [client, role, stage, count] of rows) {\n  for (let i = 0; i < count; i++) out.push({ json: { id: 'P' + String(n++).padStart(3, '0'), client, role, furthest_stage: stage } });\n}\nreturn out;\n"
+      },
+      "id": "f6666666-0000-4000-8000-000000000003",
+      "name": "Pipeline data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pipeline report (n8n Code node, \"Run once for all items\").\n// Keeps \"held in database\" separate from the contacted -> placed funnel. Unknown stages are reported, never silently counted.\nconst ORDER = ['Held', 'Contacted', 'Engaged', 'Submitted', 'Interview', 'Offer', 'Placed'];\nconst rank = Object.fromEntries(ORDER.map((s, i) => [s, i]));\nconst rows = $input.all().map((i) => i.json);\n\nconst known = rows.filter((r) => r.furthest_stage in rank);\nconst unknown = rows.filter((r) => !(r.furthest_stage in rank));\nconst held = known.filter((r) => r.furthest_stage === 'Held').length;\nconst active = known.filter((r) => r.furthest_stage !== 'Held');\n\n// \"Reached\" = furthest stage is this one or later (cumulative funnel).\nconst reached = (list, stage) => list.filter((r) => rank[r.furthest_stage] >= rank[stage]).length;\nconst pct = (a, b) => (b === 0 ? null : Math.round((a / b) * 1000) / 10);\n\nconst funnelFor = (list) => {\n  const steps = ORDER.slice(1).map((s) => ({ stage: s, reached: reached(list, s) }));\n  steps.forEach((s, i) => { s.conversion_from_previous_pct = i === 0 ? null : pct(s.reached, steps[i - 1].reached); });\n  return steps;\n};\n\nconst byRole = {};\nactive.forEach((r) => {\n  const key = r.client + ' | ' + r.role;\n  (byRole[key] = byRole[key] || []).push(r);\n});\n\nreturn [{\n  json: {\n    held_in_database: held,\n    contacted_and_beyond: reached(active, 'Contacted'),\n    funnel: funnelFor(active),\n    by_role: Object.entries(byRole).map(([k, list]) => {\n      const [client, role] = k.split(' | ');\n      return { client, role, funnel: funnelFor(list) };\n    }),\n    data_quality: {\n      unrecognised_stage_records: unknown.map((r) => ({ id: r.id, stage: r.furthest_stage })),\n      note: unknown.length ? 'These records are NOT counted in any funnel step. Fix their stage in the source system.' : 'All stages recognised.',\n    },\n  },\n}];\n"
+      },
+      "id": "f6666666-0000-4000-8000-000000000004",
+      "name": "Build report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Weekly digest text (n8n Code node). Turns the report into a short message a person can read in 30 seconds.\nconst r = $input.first().json;\nconst line = (s) => s.stage.padEnd(10) + String(s.reached).padStart(3) + (s.conversion_from_previous_pct === null ? '' : '   (' + s.conversion_from_previous_pct + '% of previous step)');\nconst parts = [];\nparts.push('PIPELINE DIGEST');\nparts.push('Held in database (not contacted): ' + r.held_in_database);\nparts.push('Contacted or further: ' + r.contacted_and_beyond);\nparts.push('');\nparts.push('Overall funnel (candidates who reached each stage)');\nr.funnel.forEach((s) => parts.push('  ' + line(s)));\nparts.push('');\nparts.push('By client and role');\nr.by_role.forEach((b) => {\n  const get = (st) => b.funnel.find((x) => x.stage === st).reached;\n  parts.push('  ' + b.client + ' / ' + b.role + ': contacted ' + get('Contacted') + ', engaged ' + get('Engaged') + ', submitted ' + get('Submitted') + ', interview ' + get('Interview') + ', offer ' + get('Offer') + ', placed ' + get('Placed'));\n});\nif (r.data_quality.unrecognised_stage_records.length) {\n  parts.push('');\n  parts.push('DATA CHECK: ' + r.data_quality.unrecognised_stage_records.length + ' record(s) have an unrecognised stage and are not counted: ' + r.data_quality.unrecognised_stage_records.map((x) => x.id + ' (\"' + x.stage + '\")').join(', '));\n}\nreturn [{ json: { digest_text: parts.join('\\n'), report: r } }];\n"
+      },
+      "id": "f6666666-0000-4000-8000-000000000005",
+      "name": "Build digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        240
+      ]
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Pipeline data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pipeline data": {
+      "main": [
+        [
+          {
+            "node": "Build report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build report": {
+      "main": [
+        [
+          {
+            "node": "Build digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

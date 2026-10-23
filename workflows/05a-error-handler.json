@@ -1,0 +1,84 @@
+{
+  "name": "05a - Error Handler (alerts)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Error handler\n**Purpose:** catches failures from any workflow that points to it and turns the raw error into a clear alert: what failed, what type of problem, whether retrying is safe, and what to check first.\n**To use:** open another workflow → Settings → **Error workflow** → choose this one.\n**Send the alert:** replace the last node with a Slack or Email node and use the field alert_text.\n**Test:** click Execute workflow here to see an alert built from sample error data.",
+        "height": 250,
+        "width": 520,
+        "color": 5
+      },
+      "id": "c3333333-0000-4000-8000-000000000001",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -120,
+        -130
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "c3333333-0000-4000-8000-000000000002",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn a raw n8n error into a clear alert (n8n Code node, \"Run once for all items\").\n// Classifies the failure, says what to check first, and says whether a retry is safe.\nconst e = $input.first().json;\nconst message = String((e.execution && e.execution.error && e.execution.error.message) || 'Unknown error');\nconst lower = message.toLowerCase();\n\nconst classes = [\n  { test: /401|403|unauthori[sz]ed|forbidden|invalid api key|credential|token (expired|invalid)/, type: 'Authentication', severity: 'High', retry_safe: false, first_check: 'Open the credential used by the failing node and re-save or reconnect it. Check the key has not expired or been revoked.' },\n  { test: /429|rate.?limit|too many requests|quota/, type: 'Rate limit', severity: 'Medium', retry_safe: true, first_check: 'Wait a few minutes and retry. If it repeats, reduce run frequency or add a Wait node between calls.' },\n  { test: /timeout|timed out|econnreset|econnrefused|enotfound|socket hang up|5\\d\\d/, type: 'Network or service', severity: 'Medium', retry_safe: true, first_check: 'Check the other service is up. Retry once. Add retry-on-fail to the node if this recurs.' },\n  { test: /validation|missing|required|invalid|cannot read|undefined|not found in/, type: 'Data problem', severity: 'Medium', retry_safe: false, first_check: 'Open the failing execution and inspect the input data of the failing node. Fix the source record; retrying will fail again.' },\n];\nconst hit = classes.find((c) => c.test.test(lower)) || { type: 'Unclassified', severity: 'High', retry_safe: false, first_check: 'Open the failing execution and read the error on the failing node.' };\n\nconst wf = (e.workflow && e.workflow.name) || 'Unknown workflow';\nconst node = (e.execution && e.execution.lastNodeExecuted) || 'Unknown node';\nconst url = (e.execution && e.execution.url) || '';\nconst when = new Date().toISOString();\n\nconst text = [\n  '[' + hit.severity.toUpperCase() + '] ' + wf + ' failed at \"' + node + '\"',\n  'Type: ' + hit.type + ' | Retry safe: ' + (hit.retry_safe ? 'yes' : 'no, fix the cause first'),\n  'Error: ' + message.slice(0, 300),\n  'First check: ' + hit.first_check,\n  url ? 'Execution: ' + url : '',\n  'Time: ' + when,\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { workflow: wf, failed_node: node, error_type: hit.type, severity: hit.severity, retry_safe: hit.retry_safe, message: message.slice(0, 300), first_check: hit.first_check, execution_url: url, timestamp: when, alert_text: text } }];\n"
+      },
+      "id": "c3333333-0000-4000-8000-000000000003",
+      "name": "Classify and format alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "c3333333-0000-4000-8000-000000000004",
+      "name": "Send alert (replace with Slack or Email)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        500,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Classify and format alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify and format alert": {
+      "main": [
+        [
+          {
+            "node": "Send alert (replace with Slack or Email)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

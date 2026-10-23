@@ -1,0 +1,90 @@
+{
+  "name": "05b - Demo workflow that fails on purpose",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Failing demo\nStops on purpose when a lead is missing an email, so you can watch the error handler (05a) react.\n**Setup:** 1) Import and publish 05a first. 2) In THIS workflow: ⋯ menu → Settings → **Error workflow** → choose 05a, save. 3) Click **Publish**. 4) Open http://localhost:5678/webhook/fail-demo in your browser. 5) Open 05a → **Executions** to see the alert.\nError workflows only fire on published (production) runs, not on manual test clicks.",
+        "height": 280,
+        "width": 540,
+        "color": 5
+      },
+      "id": "d4444444-0000-4000-8000-000000000001",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -120,
+        -150
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "fail-demo",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "d4444444-0000-4000-8000-000000000002",
+      "name": "Webhook (open this URL to trigger)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "e5555555-0000-4000-8000-000000000001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Demo: incoming leads, one of which is bad. The Validate step stops the run loudly instead of passing bad data on.\nconst leads = [\n  { id: 'L1', name: 'Nadia Karim', email: 'nadia@example.com', source: 'Instagram' },\n  { id: 'L2', name: 'Peter Shaw', email: 'peter@example.com', source: 'Website form' },\n  { id: 'L3', name: 'Rina Das', email: '', source: 'WhatsApp' },\n];\nconst bad = leads.filter((l) => !l.email);\nif (bad.length) {\n  throw new Error('Validation failed: required field missing (email) for record ' + bad.map((b) => b.id).join(', '));\n}\nreturn leads.map((l) => ({ json: l }));\n"
+      },
+      "id": "d4444444-0000-4000-8000-000000000003",
+      "name": "Validate incoming leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d4444444-0000-4000-8000-000000000004",
+      "name": "Process leads",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        500,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook (open this URL to trigger)": {
+      "main": [
+        [
+          {
+            "node": "Validate incoming leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate incoming leads": {
+      "main": [
+        [
+          {
+            "node": "Process leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
